@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  doc-translate:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./prisma:/app/prisma
+      - ./dev.db:/app/prisma/dev.db
+    environment:
+      - DATABASE_URL=file:/app/prisma/dev.db
+    restart: unless-stopped
