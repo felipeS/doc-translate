@@ -1,17 +1,51 @@
 'use client'
 
-import { useState } from 'react'
-import { Upload, FileText, ArrowRight, Loader2 } from 'lucide-react'
+import { useState, useRef } from 'react'
+import { Upload, FileText, ArrowRight, Loader2, CheckCircle, Sparkles, File, X, BookOpen } from 'lucide-react'
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null)
   const [translating, setTranslating] = useState(false)
   const [result, setResult] = useState<{ success: boolean; message: string; downloadUrl?: string } | null>(null)
+  const [dragOver, setDragOver] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0])
-      setResult(null)
+      const selectedFile = e.target.files[0]
+      if (selectedFile.name.endsWith('.docx')) {
+        setFile(selectedFile)
+        setResult(null)
+      }
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const selectedFile = e.dataTransfer.files[0]
+      if (selectedFile.name.endsWith('.docx')) {
+        setFile(selectedFile)
+        setResult(null)
+      }
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(true)
+  }
+
+  const handleDragLeave = () => {
+    setDragOver(false)
+  }
+
+  const clearFile = () => {
+    setFile(null)
+    setResult(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
     }
   }
 
@@ -30,11 +64,12 @@ export default function Home() {
         body: formData,
       })
 
-      const data = await response.json()
-
-      if (response.ok && data.downloadUrl) {
-        setResult({ success: true, message: 'Translation complete!', downloadUrl: data.downloadUrl })
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = URL.createObjectURL(blob)
+        setResult({ success: true, message: 'Translation complete!', downloadUrl: url })
       } else {
+        const data = await response.json()
         setResult({ success: false, message: data.error || 'Translation failed' })
       }
     } catch (error) {
@@ -46,76 +81,189 @@ export default function Home() {
 
   return (
     <div className="space-y-8">
-      <div className="text-center">
-        <h1 className="text-3xl font-bold text-gray-900">Translate Documents</h1>
-        <p className="mt-2 text-gray-600">Upload a DOCX file and translate it using Gemini AI</p>
-      </div>
-
-      <div className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center hover:border-gray-400 transition-colors">
-        <Upload className="mx-auto h-12 w-12 text-gray-400" />
-        <div className="mt-4">
-          <label htmlFor="file-upload" className="cursor-pointer">
-            <span className="mt-2 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-              Upload DOCX
-            </span>
-            <input
-              id="file-upload"
-              name="file-upload"
-              type="file"
-              accept=".docx"
-              className="sr-only"
-              onChange={handleFileChange}
-            />
-          </label>
+      {/* Hero section */}
+      <div className="text-center py-8 animate-fade-in">
+        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-violet-500/10 border border-violet-500/20 text-violet-400 text-sm mb-6">
+          <Sparkles className="w-4 h-4" />
+          <span>AI-powered translation</span>
         </div>
-        {file && (
-          <div className="mt-4 flex items-center justify-center gap-2 text-sm text-gray-600">
-            <FileText className="h-4 w-4" />
-            <span>{file.name}</span>
-            <span className="text-gray-400">({(file.size / 1024).toFixed(1)} KB)</span>
-          </div>
-        )}
+        <h1 className="text-4xl md:text-5xl font-bold mb-4 tracking-tight">
+          Translate Documents with{' '}
+          <span className="gradient-text">AI Precision</span>
+        </h1>
+        <p className="text-lg text-zinc-400 max-w-xl mx-auto">
+          Upload your DOCX files and get professional translations powered by Gemini AI. 
+          Includes custom glossary support for consistent terminology.
+        </p>
       </div>
 
+      {/* Upload zone */}
+      <div 
+        className={`
+          relative overflow-hidden rounded-2xl transition-all duration-300 animate-fade-in stagger-1
+          ${dragOver 
+            ? 'border-violet-500 bg-violet-500/5 scale-[1.02]' 
+            : 'border-zinc-800 bg-zinc-900/50 hover:border-zinc-700'
+          }
+          border-2 border-dashed cursor-pointer
+        `}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onClick={() => fileInputRef.current?.click()}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".docx"
+          onChange={handleFileChange}
+          className="hidden"
+        />
+        
+        <div className="p-12 text-center">
+          <div className={`
+            w-20 h-20 mx-auto mb-6 rounded-2xl flex items-center justify-center transition-all duration-300
+            ${dragOver 
+              ? 'bg-violet-500/20 scale-110' 
+              : 'bg-zinc-800 group-hover:bg-zinc-700'
+            }
+          `}>
+            {dragOver ? (
+              <Sparkles className="w-10 h-10 text-violet-400" />
+            ) : (
+              <Upload className="w-10 h-10 text-zinc-500" />
+            )}
+          </div>
+          
+          <h3 className="text-xl font-semibold mb-2">
+            {dragOver ? 'Drop your file here' : 'Upload your document'}
+          </h3>
+          <p className="text-zinc-500">
+            Drag and drop your DOCX file here, or click to browse
+          </p>
+          <p className="text-zinc-600 text-sm mt-4">
+            Supports .docx files up to 10MB
+          </p>
+        </div>
+      </div>
+
+      {/* File selected */}
       {file && (
-        <div className="flex justify-center">
+        <div className="card animate-fade-in stagger-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-500/20 to-indigo-500/20 flex items-center justify-center">
+                <FileText className="w-6 h-6 text-violet-400" />
+              </div>
+              <div>
+                <p className="font-medium text-zinc-100">{file.name}</p>
+                <p className="text-sm text-zinc-500">
+                  {(file.size / 1024).toFixed(1)} KB
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); clearFile(); }}
+              className="p-2 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Translate button */}
+      {file && !result && (
+        <div className="flex justify-center animate-fade-in stagger-3">
           <button
             onClick={handleTranslate}
             disabled={translating}
-            className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-primary inline-flex items-center gap-3 text-lg"
           >
             {translating ? (
               <>
-                <Loader2 className="animate-spin -ml-1 mr-2 h-5 w-5" />
+                <Loader2 className="w-5 h-5 animate-spin" />
                 Translating...
               </>
             ) : (
               <>
-                Translate <ArrowRight className="ml-2 h-5 w-5" />
+                <Sparkles className="w-5 h-5" />
+                Translate with AI
+                <ArrowRight className="w-5 h-5" />
               </>
             )}
           </button>
         </div>
       )}
 
+      {/* Result */}
       {result && (
-        <div className={`rounded-md p-4 ${result.success ? 'bg-green-50' : 'bg-red-50'}`}>
+        <div className={`
+          card animate-fade-in
+          ${result.success 
+            ? 'border-green-500/20 bg-green-500/5' 
+            : 'border-red-500/20 bg-red-500/5'
+          }
+        `}>
           {result.success ? (
-            <div className="flex flex-col items-center gap-4">
-              <p className="text-green-800">{result.message}</p>
+            <div className="flex flex-col items-center gap-6 py-4">
+              <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center">
+                <CheckCircle className="w-8 h-8 text-green-400" />
+              </div>
+              <p className="text-green-400 font-medium text-lg">{result.message}</p>
               <a
                 href={result.downloadUrl}
-                download
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700"
+                download={`translated_${file?.name}`}
+                className="btn-primary inline-flex items-center gap-2"
               >
-                Download Translated File
+                <File className="w-5 h-5" />
+                Download Translated Document
               </a>
+              <button
+                onClick={clearFile}
+                className="text-zinc-500 hover:text-zinc-300 text-sm transition-colors"
+              >
+                Translate another document
+              </button>
             </div>
           ) : (
-            <p className="text-red-800">{result.message}</p>
+            <div className="text-center py-4">
+              <p className="text-red-400">{result.message}</p>
+            </div>
           )}
         </div>
       )}
+
+      {/* Features */}
+      <div className="grid md:grid-cols-3 gap-4 mt-12 animate-fade-in stagger-4">
+        <FeatureCard 
+          icon={Sparkles}
+          title="AI-Powered"
+          description="Advanced translation using Gemini AI with context awareness"
+        />
+        <FeatureCard 
+          icon={BookOpen}
+          title="Custom Glossary"
+          description="Define your own terminology for consistent translations"
+        />
+        <FeatureCard 
+          icon={FileText}
+          title="DOCX Support"
+          description="Full support for Microsoft Word documents"
+        />
+      </div>
+    </div>
+  )
+}
+
+function FeatureCard({ icon: Icon, title, description }: { icon: any; title: string; description: string }) {
+  return (
+    <div className="card group">
+      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-500/10 to-indigo-500/10 flex items-center justify-center mb-4 group-hover:scale-105 transition-transform">
+        <Icon className="w-6 h-6 text-violet-400" />
+      </div>
+      <h3 className="font-semibold mb-2">{title}</h3>
+      <p className="text-sm text-zinc-500">{description}</p>
     </div>
   )
 }
