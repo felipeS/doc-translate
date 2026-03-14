@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { FileText, BookOpen, Settings, Sparkles } from 'lucide-react'
+import ThemeToggle from '@/components/ThemeToggle'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -50,6 +51,7 @@ export default function RootLayout({
                 <NavLink href="/" icon={Sparkles} label="Translate" />
                 <NavLink href="/glossary" icon={BookOpen} label="Glossary" />
                 <NavLink href="/settings" icon={Settings} label="Settings" />
+                <ThemeToggle />
               </div>
             </div>
           </div>

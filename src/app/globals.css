@@ -29,6 +29,32 @@
   
   --gradient-primary: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
   --gradient-card: linear-gradient(180deg, rgba(139, 92, 246, 0.05) 0%, transparent 100%);
+  
+  --bg-overlay: rgba(22, 22, 31, 0.7);
+}
+
+/* Light theme */
+.light {
+  --bg-primary: #fafafa;
+  --bg-secondary: #f4f4f5;
+  --bg-tertiary: #e4e4e7;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f4f4f5;
+  
+  --text-primary: #18181b;
+  --text-secondary: #52525b;
+  --text-muted: #a1a1aa;
+  
+  --border-subtle: #e4e4e7;
+  --border-active: #d4d4d8;
+  
+  --bg-overlay: rgba(255, 255, 255, 0.8);
+}
+
+.light body::before {
+  background: 
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(139, 92, 246, 0.08), transparent),
+    radial-gradient(ellipse 60% 40% at 100% 0%, rgba(99, 102, 241, 0.05), transparent);
 }
 
 * {
@@ -46,6 +72,7 @@ body {
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 /* Background pattern */
@@ -61,6 +88,13 @@ body::before {
     radial-gradient(ellipse 60% 40% at 100% 0%, rgba(99, 102, 241, 0.1), transparent);
   pointer-events: none;
   z-index: -1;
+  transition: background 0.3s ease;
+}
+
+.light body::before {
+  background: 
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(139, 92, 246, 0.1), transparent),
+    radial-gradient(ellipse 60% 40% at 100% 0%, rgba(99, 102, 241, 0.06), transparent);
 }
 
 /* Custom scrollbar */
@@ -127,10 +161,15 @@ body::before {
 
 /* Glass effect */
 .glass {
-  background: rgba(22, 22, 31, 0.7);
+  background: var(--bg-overlay);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border-subtle);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.light .glass {
+  background: rgba(255, 255, 255, 0.8);
 }
 
 /* Gradient text */
@@ -196,4 +235,34 @@ body::before {
 /* Code/mono text */
 .mono {
   font-family: 'JetBrains Mono', monospace;
+}
+
+/* Light theme overrides for cards on light background */
+.light .card {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.light .card:hover {
+  background: #ffffff;
+}
+
+/* Light theme specific overrides */
+.light .border-zinc-800 {
+  --tw-border-opacity: 1;
+  border-color: rgb(229, 229, 229);
+}
+
+.light .bg-zinc-900\/50,
+.light .bg-zinc-800\/50,
+.light .bg-zinc-800 {
+  background-color: rgba(244, 244, 245, 0.8);
+}
+
+.light .hover\:bg-zinc-800:hover,
+.light .hover\:bg-zinc-800\/50:hover {
+  background-color: rgba(228, 228, 231, 0.8);
+}
+
+.light .divide-zinc-800 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgb(229, 229, 229);
 }
