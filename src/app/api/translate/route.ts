@@ -30,6 +30,15 @@ function getLLMConfig() {
   }
 }
 
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: 'English', es: 'Spanish', fr: 'French', de: 'German', it: 'Italian',
+  pt: 'Portuguese', ru: 'Russian', zh: 'Chinese', ja: 'Japanese', ko: 'Korean',
+  ar: 'Arabic', hi: 'Hindi', nl: 'Dutch', pl: 'Polish', tr: 'Turkish',
+  vi: 'Vietnamese', th: 'Thai', sv: 'Swedish', da: 'Danish', fi: 'Finnish',
+  no: 'Norwegian', cs: 'Czech', el: 'Greek', he: 'Hebrew', id: 'Indonesian',
+  ms: 'Malay', ro: 'Romanian', uk: 'Ukrainian',
+}
+
 async function callLLM(prompt: string, config: { apiKey: string; baseUrl: string; model: string }): Promise<string> {
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: 'POST',
@@ -69,6 +78,7 @@ export async function POST(request: NextRequest) {
     // Parse form data
     const formData = await request.formData()
     const file = formData.get('file') as File | null
+    const targetLanguage = formData.get('targetLanguage') as string || 'en'
 
     if (!file) {
       return NextResponse.json(
@@ -114,7 +124,8 @@ export async function POST(request: NextRequest) {
 
     for (let i = 0; i < paragraphs.length; i += batchSize) {
       const batch = paragraphs.slice(i, i + batchSize)
-      const prompt = buildPrompt(batch.map(p => p.text), glossary, 'English')
+      const targetLangName = LANGUAGE_NAMES[targetLanguage] || targetLanguage
+      const prompt = buildPrompt(batch.map(p => p.text), glossary, targetLangName)
       const translated = await callLLM(prompt, config)
       
       const lines = translated.split('\n\n').filter(t => t.trim())

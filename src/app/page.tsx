@@ -1,13 +1,45 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { Upload, FileText, ArrowRight, Loader2, CheckCircle, Sparkles, File, X, BookOpen } from 'lucide-react'
+import { Upload, FileText, ArrowRight, Loader2, CheckCircle, Sparkles, File, X, BookOpen, Globe } from 'lucide-react'
+
+const LANGUAGES = [
+  { code: 'en', name: 'English' },
+  { code: 'es', name: 'Spanish' },
+  { code: 'fr', name: 'French' },
+  { code: 'de', name: 'German' },
+  { code: 'it', name: 'Italian' },
+  { code: 'pt', name: 'Portuguese' },
+  { code: 'ru', name: 'Russian' },
+  { code: 'zh', name: 'Chinese' },
+  { code: 'ja', name: 'Japanese' },
+  { code: 'ko', name: 'Korean' },
+  { code: 'ar', name: 'Arabic' },
+  { code: 'hi', name: 'Hindi' },
+  { code: 'nl', name: 'Dutch' },
+  { code: 'pl', name: 'Polish' },
+  { code: 'tr', name: 'Turkish' },
+  { code: 'vi', name: 'Vietnamese' },
+  { code: 'th', name: 'Thai' },
+  { code: 'sv', name: 'Swedish' },
+  { code: 'da', name: 'Danish' },
+  { code: 'fi', name: 'Finnish' },
+  { code: 'no', name: 'Norwegian' },
+  { code: 'cs', name: 'Czech' },
+  { code: 'el', name: 'Greek' },
+  { code: 'he', name: 'Hebrew' },
+  { code: 'id', name: 'Indonesian' },
+  { code: 'ms', name: 'Malay' },
+  { code: 'ro', name: 'Romanian' },
+  { code: 'uk', name: 'Ukrainian' },
+]
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null)
   const [translating, setTranslating] = useState(false)
   const [result, setResult] = useState<{ success: boolean; message: string; downloadUrl?: string } | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [targetLanguage, setTargetLanguage] = useState('en')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -58,6 +90,7 @@ export default function Home() {
     try {
       const formData = new FormData()
       formData.append('file', file)
+      formData.append('targetLanguage', targetLanguage)
 
       const response = await fetch('/api/translate', {
         method: 'POST',
@@ -97,10 +130,29 @@ export default function Home() {
         </p>
       </div>
 
+      {/* Language picker */}
+      <div className="flex justify-center animate-fade-in stagger-1">
+        <div className="flex items-center gap-3 p-3 rounded-xl bg-zinc-900/50 border border-zinc-800">
+          <Globe className="w-5 h-5 text-zinc-400" />
+          <span className="text-zinc-300 font-medium">Translate to:</span>
+          <select
+            value={targetLanguage}
+            onChange={(e) => setTargetLanguage(e.target.value)}
+            className="bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-zinc-100 font-medium focus:outline-none focus:ring-2 focus:ring-violet-500"
+          >
+            {LANGUAGES.map((lang) => (
+              <option key={lang.code} value={lang.code}>
+                {lang.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       {/* Upload zone */}
       <div 
         className={`
-          relative overflow-hidden rounded-2xl transition-all duration-300 animate-fade-in stagger-1
+          relative overflow-hidden rounded-2xl transition-all duration-300 animate-fade-in stagger-2
           ${dragOver 
             ? 'border-violet-500 bg-violet-500/5 scale-[1.02]' 
             : 'border-zinc-800 bg-zinc-900/50 hover:border-zinc-700'
@@ -125,7 +177,7 @@ export default function Home() {
             w-20 h-20 mx-auto mb-6 rounded-2xl flex items-center justify-center transition-all duration-300
             ${dragOver 
               ? 'bg-violet-500/20 scale-110' 
-              : 'bg-zinc-800 group-hover:bg-zinc-700'
+              : 'bg-zinc-800'
             }
           `}>
             {dragOver ? (
@@ -158,7 +210,7 @@ export default function Home() {
               <div>
                 <p className="font-medium text-zinc-100">{file.name}</p>
                 <p className="text-sm text-zinc-500">
-                  {(file.size / 1024).toFixed(1)} KB
+                  {(file.size / 1024).toFixed(1)} KB → {LANGUAGES.find(l => l.code === targetLanguage)?.name}
                 </p>
               </div>
             </div>
