@@ -1,5 +1,5 @@
 import JSZip from 'jszip'
-import { XMLSerializer } from '@xmldom/xmldom'
+import { DOMParser, XMLSerializer } from '@xmldom/xmldom'
 
 export interface Paragraph {
   index: number
@@ -83,7 +83,6 @@ export function translateParagraphsXml(xml: Document, translatedTexts: string[])
         // Find all text nodes in this paragraph and rebuild
         const paragraph = parent.parentElement
         if (paragraph) {
-          // Simple replacement: just replace the content of all w:t elements in this paragraph
           const paraTextNodes = paragraph.getElementsByTagName('w:t')
           let textIndex = 0
           const originalText = currentParagraphText
