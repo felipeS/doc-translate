@@ -120,7 +120,7 @@ export async function POST(request: NextRequest) {
           batchUnits.push({
             id: units[j].id,
             role: 'context_only',
-            kind: units[j].kind,
+            kind: 'paragraph',
             text: units[j].text
           })
         }
@@ -131,12 +131,11 @@ export async function POST(request: NextRequest) {
       for (let j = i; j < batchEnd; j++) {
         const unit = units[j]
         // Lock placeholders before translation
-        const { locked, tokens } = lockPlaceholders(unit.text)
+        const { locked } = lockPlaceholders(unit.text)
         batchUnits.push({
           id: unit.id,
           role: 'translate',
-          kind: unit.kind,
-          style: unit.style,
+          kind: 'paragraph',
           text: locked
         })
       }
@@ -148,7 +147,7 @@ export async function POST(request: NextRequest) {
           batchUnits.push({
             id: units[j].id,
             role: 'context_only',
-            kind: units[j].kind,
+            kind: 'paragraph',
             text: units[j].text
           })
         }
@@ -177,10 +176,8 @@ export async function POST(request: NextRequest) {
           )
           
           for (const result of results) {
-            // Unlock placeholders
-            const { locked: _, tokens } = lockPlaceholders(units.find(u => u.id === result.id)?.text || '')
-            const unlocked = unlockPlaceholders(result.text, tokens)
-            translations.set(result.id, unlocked)
+            // Set translation directly (placeholders locked before sending)
+            translations.set(result.id, result.text)
           }
           break
         } catch (e) {
@@ -197,7 +194,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Quality check
-    const translateUnits = units.map(u => ({ ...u, role: 'translate' as const }))
+    const translateUnits = units.map(u => ({ 
+      id: u.id, 
+      role: 'translate' as const, 
+      kind: 'paragraph' as const,
+      text: u.text 
+    }))
     const qualityResult = checkTranslationQuality(translateUnits, translations, glossary)
     
     if (!qualityResult.passed) {
