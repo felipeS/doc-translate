@@ -1,30 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import fs from 'fs'
+import path from 'path'
 import { extractDocumentXml, extractParagraphs, translateParagraphsXml, createTranslatedDocx } from '@/lib/docx'
 import { translateText } from '@/lib/gemini'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+const GLOSSARY_FILE = path.join(process.cwd(), 'glossary.json')
+
+function getGlossary(): Record<string, string> {
+  try {
+    if (fs.existsSync(GLOSSARY_FILE)) {
+      const data = fs.readFileSync(GLOSSARY_FILE, 'utf-8')
+      const terms = JSON.parse(data)
+      return Object.fromEntries(terms.map((t: { source: string; target: string }) => [t.source, t.target]))
+    }
+  } catch (e) {
+    console.error('Error reading glossary:', e)
+  }
+  return {}
+}
+
 export async function POST(request: NextRequest) {
   try {
-    // Get API key from database
-    const settings = await prisma.settings.findUnique({
-      where: { id: 'default' },
-    })
+    // Get API key from environment variable
+    const apiKey = process.env.GEMINI_API_KEY
 
-    if (!settings?.apiKey) {
+    if (!apiKey) {
       return NextResponse.json(
-        { error: 'API key not configured. Please add your Gemini API key in Settings.' },
+        { error: 'GEMINI_API_KEY not configured. Please set it in your environment variables.' },
         { status: 400 }
       )
     }
 
-    // Get glossary
-    const glossaryTerms = await prisma.glossaryTerm.findMany()
-    const glossary = Object.fromEntries(
-      glossaryTerms.map(t => [t.source, t.target])
-    )
+    // Get glossary from JSON file
+    const glossary = getGlossary()
 
     // Parse form data
     const formData = await request.formData()
@@ -62,7 +73,7 @@ export async function POST(request: NextRequest) {
 
     // Translate paragraphs
     const translatedTexts = await translateText(
-      settings.apiKey,
+      apiKey,
       paragraphs.map(p => p.text),
       glossary
     )
@@ -73,7 +84,7 @@ export async function POST(request: NextRequest) {
     // Create new DOCX
     const translatedBuffer = await createTranslatedDocx(zip, xml)
 
-    // Return file as a stream
+    // Return file
     return new NextResponse(translatedBuffer as unknown as BodyInit, {
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',

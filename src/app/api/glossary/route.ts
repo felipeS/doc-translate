@@ -1,11 +1,28 @@
 import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import fs from 'fs'
+import path from 'path'
+
+const GLOSSARY_FILE = path.join(process.cwd(), 'glossary.json')
+
+function getGlossary(): { source: string; target: string }[] {
+  try {
+    if (fs.existsSync(GLOSSARY_FILE)) {
+      const data = fs.readFileSync(GLOSSARY_FILE, 'utf-8')
+      return JSON.parse(data)
+    }
+  } catch (e) {
+    console.error('Error reading glossary:', e)
+  }
+  return []
+}
+
+function saveGlossary(terms: { source: string; target: string }[]): void {
+  fs.writeFileSync(GLOSSARY_FILE, JSON.stringify(terms, null, 2))
+}
 
 export async function GET() {
   try {
-    const terms = await prisma.glossaryTerm.findMany({
-      orderBy: { createdAt: 'desc' },
-    })
+    const terms = getGlossary()
     return NextResponse.json(terms)
   } catch (error) {
     console.error('Error fetching glossary:', error)
@@ -21,11 +38,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Source and target are required' }, { status: 400 })
     }
 
-    const term = await prisma.glossaryTerm.create({
-      data: { source, target },
-    })
+    const terms = getGlossary()
+    const newTerm = { source, target }
+    terms.push(newTerm)
+    saveGlossary(terms)
 
-    return NextResponse.json(term)
+    return NextResponse.json(newTerm)
   } catch (error) {
     console.error('Error creating term:', error)
     return NextResponse.json({ error: 'Failed to create term' }, { status: 500 })
@@ -41,9 +59,13 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'ID is required' }, { status: 400 })
     }
 
-    await prisma.glossaryTerm.delete({
-      where: { id },
-    })
+    const terms = getGlossary()
+    const index = parseInt(id)
+    
+    if (index >= 0 && index < terms.length) {
+      terms.splice(index, 1)
+      saveGlossary(terms)
+    }
 
     return NextResponse.json({ success: true })
   } catch (error) {
