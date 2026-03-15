@@ -44,3 +44,8 @@ next-env.d.ts
 # Prisma
 prisma/migrations/
 package-lock.json
+-e 
+# Dotenv
+.env.local
+.env.keys
+.env

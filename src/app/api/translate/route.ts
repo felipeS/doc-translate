@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
-import { extractDocumentXml, extractParagraphs, translateParagraphsXml, createTranslatedDocx } from '@/lib/docx'
-import { buildPrompt } from '@/lib/llm'
+import { extractDocumentXml, extractUnits, applyTranslations, createTranslatedDocx } from '@/lib/docx'
+import { buildTranslationPrompt, parseTranslationResponse, lockPlaceholders, unlockPlaceholders, detectLanguage, checkTranslationQuality, TranslationUnit } from '@/lib/translate'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -72,82 +72,143 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get glossary from JSON file
     const glossary = getGlossary()
-
-    // Parse form data
     const formData = await request.formData()
     const file = formData.get('file') as File | null
     const targetLanguage = formData.get('targetLanguage') as string || 'en'
 
     if (!file) {
-      return NextResponse.json(
-        { error: 'No file provided' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'No file provided' }, { status: 400 })
     }
 
-    console.log('Processing file:', file.name, 'size:', file.size)
+    console.log('Processing file:', file.name)
 
-    // Convert file to buffer
     const arrayBuffer = await file.arrayBuffer()
     const fileBuffer = Buffer.from(arrayBuffer)
 
-    console.log('Buffer size:', fileBuffer.length)
-    console.log('First bytes:', fileBuffer.slice(0, 4).toString('hex'))
-
-    // Check if it's a valid DOCX (PK\x03\x04)
     if (!fileBuffer.slice(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))) {
-      return NextResponse.json(
-        { error: 'Invalid DOCX file - not a valid zip file' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'Invalid DOCX file' }, { status: 400 })
     }
 
-    // Extract and translate
     const { xml, zip } = await extractDocumentXml(fileBuffer)
-    console.log('XML parsed, looking for paragraphs...')
+    const units = extractUnits(xml)
     
-    const paragraphs = extractParagraphs(xml)
-    console.log('Found paragraphs:', paragraphs.length)
+    console.log('Extracted units:', units.length)
 
-    if (paragraphs.length === 0) {
-      return NextResponse.json(
-        { error: 'No text found in document. The document may be empty or in an unsupported format.' },
-        { status: 400 }
-      )
+    if (units.length === 0) {
+      return NextResponse.json({ error: 'No text found in document' }, { status: 400 })
     }
 
-    // Translate paragraphs - one at a time for better quality
-    const translatedTexts: string[] = []
+    // Detect source language from first few units
+    const sampleText = units.slice(0, 5).map(u => u.text).join(' ')
+    const sourceLang = detectLanguage(sampleText)
+    console.log('Detected source language:', sourceLang)
 
-    for (let i = 0; i < paragraphs.length; i++) {
-      const para = paragraphs[i]
-      const targetLangName = LANGUAGE_NAMES[targetLanguage] || targetLanguage
-      const prompt = buildPrompt([para.text], glossary, targetLangName)
-      const translated = await callLLM(prompt, config)
+    const targetLangName = LANGUAGE_NAMES[targetLanguage] || targetLanguage
+
+    // Process in batches with context
+    const translations = new Map<string, string>()
+    const batchSize = 15  // Moderate batch size for quality
+    
+    for (let i = 0; i < units.length; i += batchSize) {
+      const batchUnits: TranslationUnit[] = []
       
-      // Clean up the response - remove any numbering or markers
-      const cleaned = translated
-        .replace(/^\d+[\.\)]\s*/gm, '')  // Remove "1." or "1)" at start of lines
-        .replace(/^Paragraph \d+:/gm, '')   // Remove "Paragraph 1:" markers
-        .trim()
-      
-      translatedTexts.push(cleaned)
-      
-      if ((i + 1) % 5 === 0) {
-        console.log(`Translated paragraph ${i + 1}/${paragraphs.length}`)
+      // Add context units (previous)
+      if (i > 0) {
+        const contextStart = Math.max(0, i - 2)
+        for (let j = contextStart; j < i; j++) {
+          batchUnits.push({
+            id: units[j].id,
+            role: 'context_only',
+            kind: units[j].kind,
+            text: units[j].text
+          })
+        }
       }
+      
+      // Add translate units
+      const batchEnd = Math.min(i + batchSize, units.length)
+      for (let j = i; j < batchEnd; j++) {
+        const unit = units[j]
+        // Lock placeholders before translation
+        const { locked, tokens } = lockPlaceholders(unit.text)
+        batchUnits.push({
+          id: unit.id,
+          role: 'translate',
+          kind: unit.kind,
+          style: unit.style,
+          text: locked
+        })
+      }
+      
+      // Add context units (next)
+      if (batchEnd < units.length) {
+        const contextEnd = Math.min(units.length, batchEnd + 2)
+        for (let j = batchEnd; j < contextEnd; j++) {
+          batchUnits.push({
+            id: units[j].id,
+            role: 'context_only',
+            kind: units[j].kind,
+            text: units[j].text
+          })
+        }
+      }
+
+      // Build prompt
+      const prompt = buildTranslationPrompt(batchUnits, {
+        targetLanguage: targetLangName,
+        sourceLanguage: sourceLang.lang,
+        domain: 'general',
+        tone: 'neutral',
+        glossary
+      })
+
+      // Call LLM with retry
+      let responseText = ''
+      let retries = 0
+      const maxRetries = 2
+      
+      while (retries < maxRetries) {
+        try {
+          responseText = await callLLM(prompt, config)
+          const results = parseTranslationResponse(
+            responseText,
+            batchUnits.filter(u => u.role === 'translate').map(u => u.id)
+          )
+          
+          for (const result of results) {
+            // Unlock placeholders
+            const { locked: _, tokens } = lockPlaceholders(units.find(u => u.id === result.id)?.text || '')
+            const unlocked = unlockPlaceholders(result.text, tokens)
+            translations.set(result.id, unlocked)
+          }
+          break
+        } catch (e) {
+          retries++
+          if (retries >= maxRetries) {
+            console.error(`Batch ${i} failed after ${maxRetries} retries:`, e)
+            throw e
+          }
+          console.log(`Retry ${retries} for batch starting at ${i}`)
+        }
+      }
+
+      console.log(`Translated batch ${Math.floor(i / batchSize) + 1}: ${batchEnd - i} units`)
+    }
+
+    // Quality check
+    const translateUnits = units.map(u => ({ ...u, role: 'translate' as const }))
+    const qualityResult = checkTranslationQuality(translateUnits, translations, glossary)
+    
+    if (!qualityResult.passed) {
+      console.warn('Quality issues:', qualityResult.issues)
     }
 
     // Apply translations to XML
-    translateParagraphsXml(xml, translatedTexts)
+    applyTranslations(xml, translations)
 
-    // Create new DOCX
     const translatedBuffer = await createTranslatedDocx(zip, xml)
-    console.log('Generated translated DOCX:', translatedBuffer.length, 'bytes')
 
-    // Return file
     return new NextResponse(translatedBuffer as unknown as BodyInit, {
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',

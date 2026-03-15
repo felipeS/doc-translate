@@ -1,9 +1,16 @@
 import JSZip from 'jszip'
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom'
 
-export interface Paragraph {
+export interface DocxUnit {
+  id: string
+  part: string  // body, header, footer, footnotes
   index: number
   text: string
+  style?: string
+  kind: 'paragraph' | 'heading' | 'list_item' | 'table_cell' | 'header' | 'footer' | 'footnote'
+  listLevel?: number
+  tableRow?: number
+  tableCell?: number
 }
 
 export async function extractDocumentXml(fileBuffer: Buffer): Promise<{ xml: Document, zip: JSZip }> {
@@ -20,94 +27,162 @@ export async function extractDocumentXml(fileBuffer: Buffer): Promise<{ xml: Doc
   return { xml, zip }
 }
 
-export function extractParagraphs(xml: Document): Paragraph[] {
-  const paragraphs: Paragraph[] = []
+export function extractUnits(xml: Document): DocxUnit[] {
+  const units: DocxUnit[] = []
   
-  // Get all text nodes - try multiple tag names
+  // Get all text nodes
   let textNodes = xml.getElementsByTagName('w:t')
-  
-  // If no namespaced elements, try without namespace
   if (textNodes.length === 0) {
     textNodes = xml.getElementsByTagName('t')
-  }
-  
-  // Also try getElementsByTagNameNS
-  if (textNodes.length === 0) {
-    try {
-      textNodes = xml.getElementsByTagNameNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 't')
-    } catch (e) {
-      // Some implementations don't support this
-    }
   }
   
   if (textNodes.length === 0) {
     console.log('No text nodes found')
-    return paragraphs
+    return units
   }
   
   console.log(`Found ${textNodes.length} text nodes`)
-
-  // Group text nodes by their paragraph (w:p) parent
-  // Walk up the tree to find the paragraph element
-  const paragraphTexts = new Map<string, string>()
-
+  
+  // Group text nodes by their paragraph
+  const paragraphMap = new Map<string, { element: Element; texts: string[]; style?: string; kind: string; listLevel?: number }>()
+  
   for (let i = 0; i < textNodes.length; i++) {
     const node = textNodes[i]
     const text = node.textContent || ''
+    if (!text.trim()) continue
     
-    // Find paragraph by walking up
+    // Find paragraph element
     let parent = node.parentNode as Element
-    let paraId = ''
+    let paraElement: Element | null = null
+    let current: Element | null = parent
     
-    while (parent) {
-      const tagName = parent.tagName || ''
-      // Check for paragraph (with or without namespace)
-      if (tagName === 'w:p' || tagName === 'p' || tagName.endsWith(':p')) {
-        // Use the outer HTML as a unique key for this paragraph
-        paraId = parent.getAttribute('xml:id') || parent.getAttribute('w:id') || `para_${i}`
+    while (current) {
+      const tagName = current.tagName || ''
+      if (tagName === 'w:p' || tagName === 'p') {
+        paraElement = current
         break
       }
-      parent = parent.parentNode as Element
+      current = current.parentNode as Element
     }
     
-    if (paraId) {
-      const existing = paragraphTexts.get(paraId) || ''
-      paragraphTexts.set(paraId, existing + text)
+    if (!paraElement) continue
+    
+    // Get unique ID for paragraph
+    const paraId = paraElement.getAttribute('xml:id') || paraElement.getAttribute('w14:paraId') || `para_${paragraphMap.size}`
+    
+    // Determine kind and style
+    let kind: string = 'paragraph'
+    let style: string | undefined
+    let listLevel: number | undefined
+    
+    // Check for heading
+    const pPr = paraElement.getElementsByTagName('w:pPr')[0]
+    if (pPr) {
+      const pStyle = pPr.getElementsByTagName('w:pStyle')[0]
+      if (pStyle) {
+        const styleVal = pStyle.getAttribute('w:val')
+        if (styleVal) {
+          style = styleVal
+          if (styleVal.toLowerCase().includes('heading') || styleVal.match(/^Heading[0-9]/)) {
+            kind = 'heading'
+          }
+        }
+      }
+      
+      // Check for list item
+      const listPr = pPr.getElementsByTagName('w:listPr')[0]
+      if (listPr) {
+        kind = 'list_item'
+        const ilvl = listPr.getElementsByTagName('w:ilvl')[0]
+        if (ilvl) {
+          const ilvlVal = ilvl.getAttribute('w:val')
+          if (ilvlVal) {
+            listLevel = parseInt(ilvlVal) + 1
+          }
+        }
+      }
+    }
+    
+    // Check for table cell
+    let inTable = false
+    let tableRow = 0
+    let tableCell = 0
+    current = paraElement.parentNode as Element
+    while (current) {
+      const tagName = current.tagName || ''
+      if (tagName === 'w:tr' || tagName === 'tr') {
+        const trId = current.getAttribute('xml:id') || `row_${tableRow}`
+        tableRow = paragraphMap.size // Approximate
+        break
+      }
+      if (tagName === 'w:tc' || tagName === 'tc') {
+        inTable = true
+        break
+      }
+      current = current.parentNode as Element
+    }
+    if (inTable) {
+      kind = 'table_cell'
+    }
+    
+    if (paragraphMap.has(paraId)) {
+      const existing = paragraphMap.get(paraId)!
+      existing.texts.push(text)
+    } else {
+      paragraphMap.set(paraId, {
+        element: paraElement,
+        texts: [text],
+        style,
+        kind,
+        listLevel
+      })
     }
   }
-
-  // Convert to array
+  
+  // Convert to units
   let index = 0
-  paragraphTexts.forEach((text) => {
+  paragraphMap.forEach((data, id) => {
+    const text = data.texts.join('')
     if (text.trim()) {
-      paragraphs.push({ index, text: text.trim() })
+      units.push({
+        id: `u_${String(index).padStart(3, '0')}`,
+        part: 'body',
+        index: index,
+        text: text.trim(),
+        style: data.style,
+        kind: data.kind as DocxUnit['kind'],
+        listLevel: data.listLevel
+      })
       index++
     }
   })
-
-  console.log(`Extracted ${paragraphs.length} paragraphs`)
-  return paragraphs
+  
+  console.log(`Extracted ${units.length} translation units`)
+  return units
 }
 
-export function translateParagraphsXml(xml: Document, translatedTexts: string[]): void {
-  // Get all w:t elements
+export function applyTranslations(xml: Document, translations: Map<string, string>): void {
+  // Get all text nodes
   let textNodes = xml.getElementsByTagName('w:t')
   if (textNodes.length === 0) {
     textNodes = xml.getElementsByTagName('t')
   }
-
-  // Group text nodes by paragraph
+  
+  // Group by paragraph
   const paragraphNodes = new Map<string, Element[]>()
-
+  
   for (let i = 0; i < textNodes.length; i++) {
     const node = textNodes[i] as Element
+    const text = node.textContent || ''
+    if (!text.trim()) continue
+    
     let parent = node.parentNode as Element
     let paraId = ''
     
     while (parent) {
       const tagName = parent.tagName || ''
-      if (tagName === 'w:p' || tagName === 'p' || tagName.endsWith(':p')) {
-        paraId = parent.getAttribute('xml:id') || parent.getAttribute('w:id') || `para_${i}`
+      if (tagName === 'w:p' || tagName === 'p') {
+        paraId = parent.getAttribute('xml:id') || parent.getAttribute('w14:paraId') || `para_${paragraphNodes.size}`
         break
       }
       parent = parent.parentNode as Element
@@ -119,22 +194,25 @@ export function translateParagraphsXml(xml: Document, translatedTexts: string[])
       paragraphNodes.set(paraId, nodes)
     }
   }
-
-  // Apply translations
-  let paraIndex = 0
-  paragraphNodes.forEach((nodes) => {
-    if (paraIndex < translatedTexts.length) {
-      const translated = translatedTexts[paraIndex]
-      
-      // Distribute translated text across the text nodes
+  
+  // Find matching translations
+  const unitEntries = Array.from(paragraphNodes.entries())
+  
+  // This is a simplified mapping - in production you'd track exact IDs
+  let unitIndex = 0
+  paragraphNodes.forEach((nodes, paraId) => {
+    const translatedText = translations.get(`u_${String(unitIndex).padStart(3, '0')}`)
+    
+    if (translatedText) {
+      // Distribute translated text across nodes
       let currentPos = 0
       const originalText = nodes.map(n => n.textContent || '').join('')
       
       for (const node of nodes) {
         const nodeLen = node.textContent?.length || 0
-        if (currentPos < translated.length) {
-          const remaining = translated.length - currentPos
-          const textToUse = translated.substring(currentPos, currentPos + Math.min(nodeLen, remaining))
+        if (currentPos < translatedText.length) {
+          const remaining = translatedText.length - currentPos
+          const textToUse = translatedText.substring(currentPos, currentPos + Math.min(nodeLen, remaining))
           node.textContent = textToUse
           currentPos += textToUse.length
         } else {
@@ -142,7 +220,7 @@ export function translateParagraphsXml(xml: Document, translatedTexts: string[])
         }
       }
     }
-    paraIndex++
+    unitIndex++
   })
 }
 

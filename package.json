@@ -12,6 +12,7 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
+    "@dotenvx/dotenvx": "^1.55.1",
     "@google/generative-ai": "^0.24.1",
     "@xmldom/xmldom": "^0.8.11",
     "jszip": "^3.10.1",
