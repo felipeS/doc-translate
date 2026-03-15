@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
 import { extractDocumentXml, extractParagraphs, translateParagraphsXml, createTranslatedDocx } from '@/lib/docx'
-import { translateText } from '@/lib/gemini'
+import { buildPrompt } from '@/lib/llm'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -22,14 +22,43 @@ function getGlossary(): Record<string, string> {
   return {}
 }
 
+function getLLMConfig() {
+  return {
+    apiKey: process.env.LLM_API_KEY || '',
+    baseUrl: process.env.LLM_BASE_URL || 'https://openrouter.ai/api/v1',
+    model: process.env.LLM_MODEL || 'google/gemini-2.0-flash',
+  }
+}
+
+async function callLLM(prompt: string, config: { apiKey: string; baseUrl: string; model: string }): Promise<string> {
+  const response = await fetch(`${config.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.model,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  })
+
+  if (!response.ok) {
+    const error = await response.text()
+    throw new Error(`LLM API error: ${response.status} - ${error}`)
+  }
+
+  const data = await response.json()
+  return data.choices[0].message.content
+}
+
 export async function POST(request: NextRequest) {
   try {
-    // Get API key from environment variable
-    const apiKey = process.env.GEMINI_API_KEY
+    const config = getLLMConfig()
 
-    if (!apiKey) {
+    if (!config.apiKey) {
       return NextResponse.json(
-        { error: 'GEMINI_API_KEY not configured. Please set it in your environment variables.' },
+        { error: 'LLM_API_KEY not configured. Please set it in your environment variables.' },
         { status: 400 }
       )
     }
@@ -71,12 +100,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Translate paragraphs
-    const translatedTexts = await translateText(
-      apiKey,
-      paragraphs.map(p => p.text),
-      glossary
-    )
+    // Translate paragraphs in batches
+    const translatedTexts: string[] = []
+    const batchSize = 10
+
+    for (let i = 0; i < paragraphs.length; i += batchSize) {
+      const batch = paragraphs.slice(i, i + batchSize)
+      const prompt = buildPrompt(batch.map(p => p.text), glossary, 'English')
+      const translated = await callLLM(prompt, config)
+      
+      const lines = translated.split('\n\n').filter(t => t.trim())
+      translatedTexts.push(...lines)
+    }
 
     // Apply translations to XML
     translateParagraphsXml(xml, translatedTexts)

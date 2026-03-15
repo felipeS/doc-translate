@@ -1,30 +1,16 @@
 import { NextResponse } from 'next/server'
 
 export async function GET() {
-  const apiKey = process.env.GEMINI_API_KEY || ''
-  
   return NextResponse.json({
-    apiKey: apiKey ? 'configured' : '',
+    apiKey: process.env.LLM_API_KEY || '',
+    baseUrl: process.env.LLM_BASE_URL || 'https://openrouter.ai/api/v1',
+    model: process.env.LLM_MODEL || 'google/gemini-2.0-flash',
   })
 }
 
-export async function POST(request: Request) {
-  // API key is now stored in environment variable, not in DB
-  // This endpoint is kept for compatibility but doesn't save anything
-  try {
-    const { apiKey } = await request.json()
-    
-    if (!apiKey) {
-      return NextResponse.json({ 
-        error: 'Please set GEMINI_API_KEY environment variable on your deployment platform' 
-      }, { status: 400 })
-    }
-
-    return NextResponse.json({ 
-      message: 'API key should be set as GEMINI_API_KEY environment variable, not in the app' 
-    })
-  } catch (error) {
-    console.error('Error:', error)
-    return NextResponse.json({ error: 'Failed to process request' }, { status: 500 })
-  }
+export async function POST() {
+  // API config is now stored in environment variables
+  return NextResponse.json({
+    message: 'API configuration is managed via environment variables: LLM_API_KEY, LLM_BASE_URL, LLM_MODEL'
+  })
 }
