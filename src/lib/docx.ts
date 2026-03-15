@@ -22,116 +22,101 @@ export async function extractDocumentXml(fileBuffer: Buffer): Promise<{ xml: Doc
 
 export function extractParagraphs(xml: Document): Paragraph[] {
   const paragraphs: Paragraph[] = []
-  const textNodes = xml.getElementsByTagName('w:t')
   
-  let currentParagraphText = ''
-  let currentParagraphIndex = 0
-  let lastParent: Element | null = null
+  // Try different namespace formats
+  let textNodes = xml.getElementsByTagName('w:t')
+  if (textNodes.length === 0) {
+    textNodes = xml.getElementsByTagName('t')
+  }
+  
+  if (textNodes.length === 0) {
+    // Debug: log the XML structure
+    console.log('No text nodes found. XML content:', xml.documentElement.innerHTML.substring(0, 500))
+    return paragraphs
+  }
+  
+  console.log(`Found ${textNodes.length} text nodes`)
+
+  // Group text nodes by their paragraph parent
+  const paragraphMap = new Map<Element, string>()
 
   for (let i = 0; i < textNodes.length; i++) {
     const node = textNodes[i]
-    const parent = node.parentElement
+    const text = node.textContent || ''
     
-    if (!parent) continue
-    
-    // New paragraph if parent changed
-    if (lastParent && parent !== lastParent) {
-      if (currentParagraphText.trim()) {
-        paragraphs.push({
-          index: currentParagraphIndex,
-          text: currentParagraphText.trim()
-        })
-        currentParagraphIndex++
-      }
-      currentParagraphText = ''
+    // Find the paragraph element (w:p)
+    let parent = node.parentElement
+    while (parent && parent.tagName !== 'w:p' && parent.tagName !== 'p') {
+      parent = parent.parentElement
     }
     
-    currentParagraphText += node.textContent || ''
-    lastParent = parent
+    if (parent) {
+      const existing = paragraphMap.get(parent) || ''
+      paragraphMap.set(parent, existing + text)
+    }
   }
-  
-  // Don't forget the last paragraph
-  if (currentParagraphText.trim()) {
-    paragraphs.push({
-      index: currentParagraphIndex,
-      text: currentParagraphText.trim()
-    })
-  }
-  
+
+  // Convert map to paragraphs array
+  let index = 0
+  paragraphMap.forEach((text) => {
+    if (text.trim()) {
+      paragraphs.push({ index, text: text.trim() })
+      index++
+    }
+  })
+
+  console.log(`Extracted ${paragraphs.length} paragraphs`)
   return paragraphs
 }
 
 export function translateParagraphsXml(xml: Document, translatedTexts: string[]): void {
-  const textNodes = xml.getElementsByTagName('w:t')
-  
-  let currentParagraphIndex = 0
-  let currentParagraphText = ''
-  let lastParent: Element | null = null
-  
+  // Get all w:t elements
+  let textNodes = xml.getElementsByTagName('w:t')
+  if (textNodes.length === 0) {
+    textNodes = xml.getElementsByTagName('t')
+  }
+
+  // Group by paragraph
+  const paragraphNodes = new Map<Element, Element[]>()
+
   for (let i = 0; i < textNodes.length; i++) {
     const node = textNodes[i] as Element
-    const parent = node.parentElement
-    
-    if (!parent) continue
-    
-    // New paragraph if parent changed
-    if (lastParent && parent !== lastParent) {
-      if (currentParagraphIndex < translatedTexts.length) {
-        // Replace the entire paragraph text
-        const newText = translatedTexts[currentParagraphIndex]
-        
-        // Find all text nodes in this paragraph and rebuild
-        const paragraph = parent.parentElement
-        if (paragraph) {
-          const paraTextNodes = paragraph.getElementsByTagName('w:t')
-          let textIndex = 0
-          const originalText = currentParagraphText
-          
-          for (let j = 0; j < paraTextNodes.length; j++) {
-            const textNode = paraTextNodes[j] as Element
-            const textContent = textNode.textContent || ''
-            const textLen = textContent.length
-            
-            if (textIndex + textLen <= originalText.length) {
-              const portion = newText.substring(textIndex, textIndex + textLen)
-              textNode.textContent = portion
-              textIndex += textLen
-            }
-          }
-        }
-      }
-      currentParagraphIndex++
-      currentParagraphText = ''
+    let parent = node.parentElement
+    while (parent && parent.tagName !== 'w:p' && parent.tagName !== 'p') {
+      parent = parent.parentElement
     }
     
-    currentParagraphText += node.textContent || ''
-    lastParent = parent
+    if (parent) {
+      const nodes = paragraphNodes.get(parent) || []
+      nodes.push(node)
+      paragraphNodes.set(parent, nodes)
+    }
   }
-  
-  // Handle last paragraph
-  if (currentParagraphText.trim() && currentParagraphIndex < translatedTexts.length) {
-    const newText = translatedTexts[currentParagraphIndex]
-    if (lastParent) {
-      const paragraph = lastParent.parentElement
-      if (paragraph) {
-        const paraTextNodes = paragraph.getElementsByTagName('w:t')
-        let textIndex = 0
-        const originalText = currentParagraphText
-        
-        for (let j = 0; j < paraTextNodes.length; j++) {
-          const textNode = paraTextNodes[j] as Element
-          const textContent = textNode.textContent || ''
-          const textLen = textContent.length
-          
-          if (textIndex + textLen <= originalText.length) {
-            const portion = newText.substring(textIndex, textIndex + textLen)
-            textNode.textContent = portion
-            textIndex += textLen
-          }
+
+  // Apply translations
+  let paraIndex = 0
+  paragraphNodes.forEach((nodes) => {
+    if (paraIndex < translatedTexts.length) {
+      const translated = translatedTexts[paraIndex]
+      
+      // Distribute translated text across the text nodes
+      let currentPos = 0
+      const originalText = nodes.map(n => n.textContent || '').join('')
+      
+      for (const node of nodes) {
+        const nodeLen = node.textContent?.length || 0
+        if (currentPos < translated.length) {
+          const remaining = translated.length - currentPos
+          const textToUse = translated.substring(currentPos, currentPos + Math.min(nodeLen, remaining))
+          node.textContent = textToUse
+          currentPos += textToUse.length
+        } else {
+          node.textContent = ''
         }
       }
     }
-  }
+    paraIndex++
+  })
 }
 
 export async function createTranslatedDocx(zip: JSZip, xml: Document): Promise<Buffer> {

@@ -77,25 +77,33 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    console.log('Processing file:', file.name, 'size:', file.size)
+
     // Convert file to buffer
     const arrayBuffer = await file.arrayBuffer()
     const fileBuffer = Buffer.from(arrayBuffer)
 
-    // Check if it's a valid DOCX
+    console.log('Buffer size:', fileBuffer.length)
+    console.log('First bytes:', fileBuffer.slice(0, 4).toString('hex'))
+
+    // Check if it's a valid DOCX (PK\x03\x04)
     if (!fileBuffer.slice(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))) {
       return NextResponse.json(
-        { error: 'Invalid DOCX file' },
+        { error: 'Invalid DOCX file - not a valid zip file' },
         { status: 400 }
       )
     }
 
     // Extract and translate
     const { xml, zip } = await extractDocumentXml(fileBuffer)
+    console.log('XML parsed, looking for paragraphs...')
+    
     const paragraphs = extractParagraphs(xml)
+    console.log('Found paragraphs:', paragraphs.length)
 
     if (paragraphs.length === 0) {
       return NextResponse.json(
-        { error: 'No text found in document' },
+        { error: 'No text found in document. The document may be empty or in an unsupported format.' },
         { status: 400 }
       )
     }
@@ -111,6 +119,7 @@ export async function POST(request: NextRequest) {
       
       const lines = translated.split('\n\n').filter(t => t.trim())
       translatedTexts.push(...lines)
+      console.log(`Translated batch ${i/batchSize + 1}: ${lines.length} paragraphs`)
     }
 
     // Apply translations to XML
@@ -118,6 +127,7 @@ export async function POST(request: NextRequest) {
 
     // Create new DOCX
     const translatedBuffer = await createTranslatedDocx(zip, xml)
+    console.log('Generated translated DOCX:', translatedBuffer.length, 'bytes')
 
     // Return file
     return new NextResponse(translatedBuffer as unknown as BodyInit, {
