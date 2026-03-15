@@ -205,7 +205,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Apply translations to XML
-    applyTranslations(xml, translations)
+    applyTranslations(units, translations)
 
     const translatedBuffer = await createTranslatedDocx(zip, xml)
 
