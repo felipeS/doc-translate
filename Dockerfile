@@ -1,19 +1,22 @@
+# Use official Node.js image
 FROM node:20-alpine
 
 WORKDIR /app
 
+# Copy package files
+COPY package.json package-lock.json* ./
+
 # Install dependencies
-COPY package*.json ./
-RUN npm ci
+RUN npm install
 
-# Generate Prisma client
-RUN npx prisma generate
+# Copy the rest of the app
+COPY . .
 
-# Build the application
+# Build the app
 RUN npm run build
 
-# Expose port
+# Expose the port
 EXPOSE 3000
 
-# Start the application
+# Start the app
 CMD ["npm", "start"]
