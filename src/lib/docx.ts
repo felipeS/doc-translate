@@ -23,42 +23,62 @@ export async function extractDocumentXml(fileBuffer: Buffer): Promise<{ xml: Doc
 export function extractParagraphs(xml: Document): Paragraph[] {
   const paragraphs: Paragraph[] = []
   
-  // Try different namespace formats
+  // Get all text nodes - try multiple tag names
   let textNodes = xml.getElementsByTagName('w:t')
+  
+  // If no namespaced elements, try without namespace
   if (textNodes.length === 0) {
     textNodes = xml.getElementsByTagName('t')
   }
   
+  // Also try getElementsByTagNameNS
   if (textNodes.length === 0) {
-    // Debug: log the XML structure
-    console.log('No text nodes found. XML content:', xml.documentElement.innerHTML.substring(0, 500))
+    try {
+      textNodes = xml.getElementsByTagNameNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 't')
+    } catch (e) {
+      // Some implementations don't support this
+    }
+  }
+  
+  if (textNodes.length === 0) {
+    console.log('No text nodes found')
     return paragraphs
   }
   
   console.log(`Found ${textNodes.length} text nodes`)
 
-  // Group text nodes by their paragraph parent
-  const paragraphMap = new Map<Element, string>()
+  // Group text nodes by their paragraph (w:p) parent
+  // Walk up the tree to find the paragraph element
+  const paragraphTexts = new Map<string, string>()
 
   for (let i = 0; i < textNodes.length; i++) {
     const node = textNodes[i]
     const text = node.textContent || ''
     
-    // Find the paragraph element (w:p)
-    let parent = node.parentElement
-    while (parent && parent.tagName !== 'w:p' && parent.tagName !== 'p') {
-      parent = parent.parentElement
+    // Find paragraph by walking up
+    let parent = node.parentNode as Element
+    let paraId = ''
+    
+    while (parent) {
+      const tagName = parent.tagName || ''
+      // Check for paragraph (with or without namespace)
+      if (tagName === 'w:p' || tagName === 'p' || tagName.endsWith(':p')) {
+        // Use the outer HTML as a unique key for this paragraph
+        paraId = parent.getAttribute('xml:id') || parent.getAttribute('w:id') || `para_${i}`
+        break
+      }
+      parent = parent.parentNode as Element
     }
     
-    if (parent) {
-      const existing = paragraphMap.get(parent) || ''
-      paragraphMap.set(parent, existing + text)
+    if (paraId) {
+      const existing = paragraphTexts.get(paraId) || ''
+      paragraphTexts.set(paraId, existing + text)
     }
   }
 
-  // Convert map to paragraphs array
+  // Convert to array
   let index = 0
-  paragraphMap.forEach((text) => {
+  paragraphTexts.forEach((text) => {
     if (text.trim()) {
       paragraphs.push({ index, text: text.trim() })
       index++
@@ -76,20 +96,27 @@ export function translateParagraphsXml(xml: Document, translatedTexts: string[])
     textNodes = xml.getElementsByTagName('t')
   }
 
-  // Group by paragraph
-  const paragraphNodes = new Map<Element, Element[]>()
+  // Group text nodes by paragraph
+  const paragraphNodes = new Map<string, Element[]>()
 
   for (let i = 0; i < textNodes.length; i++) {
     const node = textNodes[i] as Element
-    let parent = node.parentElement
-    while (parent && parent.tagName !== 'w:p' && parent.tagName !== 'p') {
-      parent = parent.parentElement
+    let parent = node.parentNode as Element
+    let paraId = ''
+    
+    while (parent) {
+      const tagName = parent.tagName || ''
+      if (tagName === 'w:p' || tagName === 'p' || tagName.endsWith(':p')) {
+        paraId = parent.getAttribute('xml:id') || parent.getAttribute('w:id') || `para_${i}`
+        break
+      }
+      parent = parent.parentNode as Element
     }
     
-    if (parent) {
-      const nodes = paragraphNodes.get(parent) || []
+    if (paraId) {
+      const nodes = paragraphNodes.get(paraId) || []
       nodes.push(node)
-      paragraphNodes.set(parent, nodes)
+      paragraphNodes.set(paraId, nodes)
     }
   }
 
