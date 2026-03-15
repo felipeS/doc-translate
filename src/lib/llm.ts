@@ -10,7 +10,7 @@ export interface LLMConfig {
 export const DEFAULT_CONFIG: LLMConfig = {
   provider: 'openai',
   apiKey: '',
-  baseUrl: 'https://openrouter.ai/api/v1', // Default to OpenRouter
+  baseUrl: 'https://openrouter.ai/api/v1',
   model: 'google/gemini-2.0-flash',
 }
 
@@ -21,17 +21,25 @@ export function buildPrompt(paragraphs: string[], glossary: Record<string, strin
   if (glossaryEntries.length > 0) {
     const glossaryJson = JSON.stringify(Object.fromEntries(glossaryEntries))
     glossaryInstruction = `
-IMPORTANT - MANDATORY GLOSSARY:
-You MUST use the following exact translations. Do not deviate from these terms:
+CRITICAL - TRANSLATION GLOSSARY:
+You MUST use these exact translations for these terms:
 ${glossaryJson}
 
-When you encounter these source terms, you MUST use the target translation provided above.
+Do NOT translate these words literally - use the glossary translations above.
 `
   }
 
-  return `You are a professional translator. Translate the following text to ${targetLanguage}.${glossaryInstruction}
+  return `You are an expert translator specializing in religious and spiritual texts.
 
-Translate each paragraph and return ONLY the translated text, one paragraph per line. Do not include numbering or any other text:
+TASK: Translate the text below from German to ${targetLanguage}.
 
-${paragraphs.map((p, idx) => `Paragraph ${idx + 1}: ${p}`).join('\n\n')}`
+REQUIREMENTS:
+1. Maintain the original meaning and tone
+2. Preserve the flow and readability
+3. Keep biblical/religious terminology consistent${glossaryInstruction}
+4. Output ONLY the translated text - no explanations, no numbers, no markers
+
+Translate now:
+
+${paragraphs.join('\n\n')}`
 }

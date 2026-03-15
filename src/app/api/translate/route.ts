@@ -118,19 +118,26 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Translate paragraphs in batches
+    // Translate paragraphs - one at a time for better quality
     const translatedTexts: string[] = []
-    const batchSize = 10
 
-    for (let i = 0; i < paragraphs.length; i += batchSize) {
-      const batch = paragraphs.slice(i, i + batchSize)
+    for (let i = 0; i < paragraphs.length; i++) {
+      const para = paragraphs[i]
       const targetLangName = LANGUAGE_NAMES[targetLanguage] || targetLanguage
-      const prompt = buildPrompt(batch.map(p => p.text), glossary, targetLangName)
+      const prompt = buildPrompt([para.text], glossary, targetLangName)
       const translated = await callLLM(prompt, config)
       
-      const lines = translated.split('\n\n').filter(t => t.trim())
-      translatedTexts.push(...lines)
-      console.log(`Translated batch ${i/batchSize + 1}: ${lines.length} paragraphs`)
+      // Clean up the response - remove any numbering or markers
+      const cleaned = translated
+        .replace(/^\d+[\.\)]\s*/gm, '')  // Remove "1." or "1)" at start of lines
+        .replace(/^Paragraph \d+:/gm, '')   // Remove "Paragraph 1:" markers
+        .trim()
+      
+      translatedTexts.push(cleaned)
+      
+      if ((i + 1) % 5 === 0) {
+        console.log(`Translated paragraph ${i + 1}/${paragraphs.length}`)
+      }
     }
 
     // Apply translations to XML
