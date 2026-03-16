@@ -13,7 +13,7 @@ export interface TranslationResult {
   text: string
 }
 
-const PLACEHOLDER_REGEX = /(https?:\/\/[^\s]+|[\w\.-]+@[\w\.-]+|\{\{[^}]+\}\}|\[%[^%]+\]%|[A-Z]{2,}[0-9]{2,}[A-Z0-9]+|verse\s*[0-9]+:[0-9]+|Ref\.\s*[A-Z0-9]+)/gi
+const PLACEHOLDER_REGEX = /(\{[^{}]+\}|\[[^\]]+\]|https?:\/\/[^\s]+|[\w\.-]+@[\w\.-]+|[A-Z]{2,}[0-9]{2,}[A-Z0-9]+|verse\s*[0-9]+:[0-9]+|Ref\.\s*[A-Z0-9]+|\+?[\d\-\(\)\s]{10,})/gi
 
 export function lockPlaceholders(text: string): { locked: string; tokens: Map<string, string> } {
   const tokens = new Map<string, string>()
@@ -38,23 +38,62 @@ export function unlockPlaceholders(text: string, tokens: Map<string, string>): s
 }
 
 export function detectLanguage(text: string): { lang: string; confidence: number } {
-  const germanIndicators = /\b(der|die|das|ein|eine|und|oder|aber|nicht|ist|sein|haben|werden|können|müssen|sollen|wollen|dürfen)\b/gi
-  const spanishIndicators = /\b(el|la|los|las|un|una|y|o|pero|no|es|ser|estar|tener|haber|poder|deber|querer)\b/gi
-  const frenchIndicators = /\b(le|la|les|un|une|et|ou|mais|ne|pas|être|avoir|pouvoir|devoir|vouloir)\b/gi
+  const textLower = text.toLowerCase()
   
-  const germanMatches = (text.match(germanIndicators) || []).length
-  const spanishMatches = (text.match(spanishIndicators) || []).length
-  const frenchMatches = (text.match(frenchIndicators) || []).length
+  const germanIndicators = [
+    'der', 'die', 'das', 'ein', 'eine', 'und', 'oder', 'aber', 'nicht', 'ist', 'sein', 'haben', 
+    'werden', 'können', 'müssen', 'sollen', 'wollen', 'dürfen', 'wird', 'war', 'hatte', 'wurde',
+    'sich', 'mit', 'für', 'von', 'zu', 'auf', 'im', 'dem', 'den', 'als', 'auch', 'es', 'an',
+    'noch', 'so', 'bei', 'nur', 'aus', 'nach', 'wie', 'einem', 'einer', 'über', 'oder'
+  ]
+  const spanishIndicators = [
+    'el', 'la', 'los', 'las', 'un', 'una', 'y', 'o', 'pero', 'no', 'es', 'ser', 'estar', 
+    'tener', 'haber', 'poder', 'deber', 'querer', 'está', 'son', 'fue', 'era', 'ha', 'han',
+    'con', 'para', 'por', 'más', 'como', 'este', 'esta', 'ese', 'esa', 'los', 'las', 'su',
+    'sus', 'del', 'al', 'se', 'lo', 'más', 'ya', 'muy', 'todo', 'cuando', 'donde'
+  ]
+  const frenchIndicators = [
+    'le', 'la', 'les', 'un', 'une', 'et', 'ou', 'mais', 'ne', 'pas', 'être', 'avoir', 
+    'pouvoir', 'devoir', 'vouloir', 'est', 'sont', 'était', 'était', 'a', 'ont', 'ce',
+    'cette', 'ces', 'dans', 'pour', 'avec', 'sur', 'plus', 'comme', 'tout', 'nous', 'vous',
+    'ils', 'elles', 'qui', 'que', 'quoi', 'dont', 'où', 'quand', 'bien', 'très', 'ici'
+  ]
+  const englishIndicators = [
+    'the', 'and', 'or', 'but', 'not', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+    'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may',
+    'might', 'must', 'shall', 'can', 'need', 'to', 'of', 'in', 'for', 'on', 'with', 'at',
+    'by', 'from', 'as', 'into', 'through', 'during', 'before', 'after', 'above', 'below',
+    'this', 'that', 'these', 'those', 'it', 'its', 'he', 'she', 'they', 'we', 'you', 'i'
+  ]
   
-  const total = germanMatches + spanishMatches + frenchMatches
-  if (total === 0) return { lang: 'unknown', confidence: 0 }
+  const checkIndicators = (indicators: string[]) => {
+    return indicators.filter(word => {
+      const regex = new RegExp(`\\b${word}\\b`, 'gi')
+      return (textLower.match(regex) || []).length
+    }).length
+  }
   
-  const max = Math.max(germanMatches, spanishMatches, frenchMatches)
-  const confidence = max / total
+  const germanScore = checkIndicators(germanIndicators)
+  const spanishScore = checkIndicators(spanishIndicators)
+  const frenchScore = checkIndicators(frenchIndicators)
+  const englishScore = checkIndicators(englishIndicators)
   
-  if (max === germanMatches) return { lang: 'de', confidence }
-  if (max === spanishMatches) return { lang: 'es', confidence }
-  return { lang: 'fr', confidence }
+  const scores = [
+    { lang: 'de', score: germanScore },
+    { lang: 'es', score: spanishScore },
+    { lang: 'fr', score: frenchScore },
+    { lang: 'en', score: englishScore },
+  ]
+  
+  const maxScore = Math.max(germanScore, spanishScore, frenchScore, englishScore)
+  
+  if (maxScore === 0) return { lang: 'unknown', confidence: 0 }
+  
+  const total = germanScore + spanishScore + frenchScore + englishScore
+  const confidence = total > 0 ? maxScore / total : 0
+  
+  const best = scores.find(s => s.score === maxScore)
+  return { lang: best?.lang || 'unknown', confidence }
 }
 
 export function buildTranslationPrompt(
