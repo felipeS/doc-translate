@@ -120,14 +120,18 @@ export function buildTranslationPrompt(
   const systemPrompt = `You are a professional document translator.
 
 TASK:
-Translate EVERY SINGLE unit from ${options.sourceLanguage} into ${options.targetLanguage}.
+Translate EVERY SINGLE paragraph from ${options.sourceLanguage} into ${options.targetLanguage}.
 
 CRITICAL RULES:
-- You MUST translate ALL units - no exceptions
-- Do NOT skip any unit, even if short
-- Do NOT merge units together  
+- You MUST translate ALL text - no exceptions
+- Do NOT skip any word or phrase
+- Do NOT copy source text verbatim - TRANSLATE IT
+- Do NOT merge paragraphs together  
 - Do NOT summarize - translate fully
-- Return JSON with ALL requested IDs
+- EVERY word in the output must be in ${options.targetLanguage}
+- If you see German words, translate them to Spanish
+
+WARNING: Copying source language text without translation is FAILURE.
 
 DOMAIN: ${options.domain || 'general'}
 TONE: ${options.tone || 'neutral'}
