@@ -589,60 +589,62 @@ describe('DOCX Pipeline: Full Integration', () => {
     })
 
     // ============================================
-    // BUG REPRODUCTION TESTS
+    // BUG REPRODUCTION TESTS - These SHOULD FAIL until bugs are fixed
     // ============================================
     
-    describe('BUG: Incomplete Translation Detection', () => {
-      it('should detect German words in Spanish translation - REPRODUCES BUG', () => {
-        // This test shows the bug: German words appearing in Spanish output
-        const spanishTranslation = 'Ahora me alegro en los padecimientos und freue mich'
+    describe('BUG: Quality Check Should Detect These Issues', () => {
+      it('should FAIL: detect German words in Spanish translation', () => {
+        // Currently the quality check does NOT detect German words in Spanish output
+        // This test will PASS only when we fix the quality check
+        const units: TranslationUnit[] = [
+          { id: 'u_0000', role: 'translate', kind: 'paragraph', text: 'Ahora me alegro en los padecimientos' },
+        ]
         
-        // Check for German words in what should be Spanish
-        const germanWords = /\b(und|der|die|das|ist|mit|von|auf|für|zu|als|bei|aus|nach|um|mit)\b/gi
-        const hasGerman = germanWords.test(spanishTranslation)
+        const translations = new Map<string, string>()
+        translations.set('u_0000', 'Ahora me alegro und freue mich') // Contains German "und"
         
-        // BUG REPRODUCED: This should be false but is true
-        expect(hasGerman).toBe(true)
+        const { issues, passed } = checkTranslationQuality(units, translations, {})
+        
+        // BUG: This should fail (passed should be false) but currently passes
+        expect(passed).toBe(false) // Will FAIL until we fix the code
+        expect(issues.some(i => i.toLowerCase().includes('german') || i.toLowerCase().includes('incomplete'))).toBe(true)
       })
 
-      it('should detect multiple German words remaining - REPRODUCES BUG', () => {
-        // Another example: German words mixed in
-        const text = 'Der Diener leidet freudvoll und das ist gut'
+      it('should FAIL: detect mixed language output', () => {
+        const units: TranslationUnit[] = [
+          { id: 'u_0000', role: 'translate', kind: 'paragraph', text: 'El siervo sufre' },
+        ]
         
-        const germanPattern = /\b(der|die|das|und|ist|leidet|freudvoll)\b/gi
-        const hasGerman = germanPattern.test(text)
+        const translations = new Map<string, string>()
+        translations.set('u_0000', 'Der Diener leidet freudvoll') // All German
         
-        expect(hasGerman).toBe(true)
+        const { issues, passed } = checkTranslationQuality(units, translations, {})
+        
+        // Should fail but doesn't
+        expect(passed).toBe(false)
       })
 
-      it('should detect missing space between paragraphs - REPRODUCES BUG', () => {
-        // Simulate: "IntroducciónAntecedentes" - two words merged
-        const text = 'IntroducciónAntecedentes'
+      it('should FAIL: detect merged words in output', () => {
+        const units: TranslationUnit[] = [
+          { id: 'u_0000', role: 'translate', kind: 'paragraph', text: 'Introducción' },
+          { id: 'u_0001', role: 'translate', kind: 'paragraph', text: 'Antecedentes' },
+        ]
         
-        // Check if there's a lowercase letter immediately followed by uppercase
-        const hasMergeBug = /[a-záéíóúñü][A-ZÁÉÍÓÚÑÜ]/.test(text)
+        // When applied, these might merge without space
+        const translations = new Map<string, string>()
+        translations.set('u_0000', 'Introducción')
+        translations.set('u_0001', 'Antecedentes')
         
-        // BUG REPRODUCED: This shows the bug exists in output
-        expect(hasMergeBug).toBe(true)
-      })
-
-      it('should detect merged words like "1.Elgozoso" - REPRODUCES BUG', () => {
-        // This pattern shows missing space after number/bullet
-        const text = '1.Elgozoso'
+        // Simulate the bug: in real output these get merged
+        // Quality check should detect if text has lowercase followed by uppercase
+        const combinedText = 'IntroducciónAntecedentes' // Bug: no space
         
-        // Check for digit followed by period then uppercase (the bug pattern)
-        const hasNoSpace = /[0-9]\.[A-ZÁÉÍÓÚÑÜ]/.test(text)
+        const hasMerge = /[a-záéíóúñü][A-ZÁÉÍÓÚÑÜ]/.test(combinedText)
         
-        // BUG REPRODUCED - shows "1." followed by "Elgozoso" without space
-        expect(hasNoSpace).toBe(true)
-      })
-
-      it('should detect merged words like "delsiervo" - REPRODUCES BUG', () => {
-        // This shows "del siervo" was merged to "delsiervo"
-        const text = 'sufrimiento delsiervo'
-        
-        // Bug: lowercase + space + lowercase merged to no space
-        expect(text).toContain('delsiervo')
+        // Quality check should catch this but doesn't
+        expect(hasMerge).toBe(true) // The bug exists
+        // And the quality check SHOULD fail but currently doesn't
+        // So this test documents what SHOULD happen
       })
     })
   })

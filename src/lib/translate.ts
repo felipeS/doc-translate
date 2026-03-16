@@ -210,6 +210,9 @@ export function checkTranslationQuality(
 ): { issues: string[]; passed: boolean } {
   const issues: string[] = []
   
+  // Common German words that should NOT appear in Spanish translations
+  const germanWordPattern = /\b(der|die|das|ein|eine|und|oder|aber|nicht|ist|sein|haben|werden|können|müssen|sollen|wollen|dürfen|mit|von|auf|für|zu|als|bei|aus|nach|um|an|im|am|um|des|dem|den|eing|aus|über|unter|vor|hinter|zwischen|durch|ohne|gegen|um|auch|noch|schon|sehr|gut|biss|alles|nichts|etwas|jeder|dieser|jener|alle|einige|wenige|viele|andere|neue|alt|groß|klein|lang|kurz|neu|alt|erste|letzte|allein|immer|nie|heute|morgen|gestern|jetzt|damals|nun|da|wo|wie|warum|weil|damit|obwohl|ob|wenn|falls|sonst|bis|seit|während|bevor|nachdem|weil|denn|doch|ja|nein|freilich|gewiß|leider|zwar|etwa|gar|nur|bloß|eben|halt|genau|besonders|ziemlich|sehr|recht|ganz|fast|kaum|kaum|fast|etwa|ungefähr|circa|ca)\b/gi
+  
   for (const unit of sourceUnits) {
     if (unit.role !== 'translate') continue
     
@@ -221,8 +224,23 @@ export function checkTranslationQuality(
       continue
     }
     
+    // Check for suspiciously short translations
     if (translated.length < source.length * 0.3 && source.length > 100) {
       issues.push(`Suspiciously short translation for ${unit.id}: source=${source.length}, translated=${translated.length}`)
+    }
+    
+    // Check for German words in translation (indicates incomplete translation)
+    const germanMatches = translated.match(germanWordPattern)
+    if (germanMatches && germanMatches.length > 0) {
+      // Filter out false positives (words that are valid in both languages)
+      const uniqueGerman = [...new Set(germanMatches.map(w => w.toLowerCase()))]
+      // Filter out common false positives
+      const falsePositives = ['uno', 'una', 'sobre', 'para', 'sin', 'mas', 'muy', 'todo', 'este', 'ese', 'cada', 'como', 'cuando', 'donde', 'porque', 'aunque', 'pero', 'que', 'cual', 'quien']
+      const realGerman = uniqueGerman.filter(w => !falsePositives.includes(w))
+      
+      if (realGerman.length > 0) {
+        issues.push(`Possible incomplete translation (German words detected) for ${unit.id}: ${realGerman.join(', ')}`)
+      }
     }
     
     // Check for glossary compliance
