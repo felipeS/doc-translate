@@ -166,10 +166,17 @@ export async function POST(request: NextRequest) {
       let responseText = ''
       let retries = 0
       const maxRetries = 3
+      let lastQualityIssues: string[] = []
       
       while (retries < maxRetries) {
         try {
-          responseText = await callLLM(prompt, config)
+          // Build prompt with quality warning if retrying
+          let finalPrompt = prompt
+          if (lastQualityIssues.length > 0) {
+            finalPrompt = prompt + `\n\n⚠️ CRITICAL: Previous translation had issues: ${lastQualityIssues.join('; ')}. TRANSLATE ALL TEXT TO ${targetLangName.toUpperCase()}. Do NOT copy any ${sourceLang.lang} words.`
+          }
+          
+          responseText = await callLLM(finalPrompt, config)
           const results = parseTranslationResponse(
             responseText,
             batchUnits.filter(u => u.role === 'translate').map(u => u.id)
@@ -179,20 +186,22 @@ export async function POST(request: NextRequest) {
             translations.set(result.id, result.text)
           }
           
-          // Check quality - if issues found, retry with stricter prompt
+          // Check quality - if issues found, retry
           const batchTranslateUnits = batchUnits
             .filter(u => u.role === 'translate')
             .map(u => ({ ...u, text: translations.get(u.id) || u.text }))
           
           const qualityResult = checkTranslationQuality(batchTranslateUnits, translations, glossary)
+          lastQualityIssues = qualityResult.issues
           
           if (!qualityResult.passed && retries < maxRetries - 1) {
-            // Add warning to prompt and retry
-            const warning = `\n\n⚠️ WARNING: Previous translation contained issues: ${qualityResult.issues.join('; ')}. Translate again, making sure ALL text is in ${targetLangName}.`
             retries++
             console.log(`Quality retry ${retries} for batch: ${qualityResult.issues.join('; ')}`)
-            // Continue to retry with modified prompt
             continue
+          }
+          
+          if (!qualityResult.passed) {
+            console.warn('Quality issues after all retries:', qualityResult.issues)
           }
           
           break
