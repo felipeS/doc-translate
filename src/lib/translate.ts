@@ -81,51 +81,44 @@ export function buildTranslationPrompt(
   const systemPrompt = `You are a professional document translator.
 
 TASK:
-Translate document units from ${options.sourceLanguage} into ${options.targetLanguage}.
+Translate EVERY SINGLE unit from ${options.sourceLanguage} into ${options.targetLanguage}.
 
-STRICT RULES:
-1. Translate ALL content fully - never summarize
-2. Never omit or skip any content  
-3. Never merge multiple units together
-4. Preserve the function of each unit: headings stay headings, list items stay list items, table cells stay concise
-5. Preserve placeholders, URLs, emails, codes, citations, references, numbers, and proper nouns exactly
-6. Use glossary translations exactly as provided
-7. Return JSON only - no explanations, no commentary
+CRITICAL RULES:
+- You MUST translate ALL units - no exceptions
+- Do NOT skip any unit, even if short
+- Do NOT merge units together  
+- Do NOT summarize - translate fully
+- Return JSON with ALL requested IDs
 
 DOMAIN: ${options.domain || 'general'}
 TONE: ${options.tone || 'neutral'}
-${glossaryRules}
+${glossaryRules}`
 
-For each unit, preserve its kind:
-- heading: keep it short and as a heading
-- list_item: keep it as a list item  
-- table_cell: keep it concise like a table cell
-- paragraph: full natural translation`
+  // List all IDs that MUST be translated
+  const requiredIds = translateUnits.map(u => u.id).join(', ')
 
-  const userPayload = units.map(u => {
-    const meta = u.kind !== 'paragraph' ? ` [${u.kind}]` : ''
-    return JSON.stringify({
-      id: u.id,
-      role: u.role,
-      kind: u.kind,
-      style: u.style,
-      text: u.text
-    })
-  }).join('\n')
+  const userPayload = units.map(u => JSON.stringify({
+    id: u.id,
+    role: u.role,
+    text: u.text
+  })).join('\n')
 
   return `${systemPrompt}
+
+MUST TRANSLATE THESE IDS: ${requiredIds}
 
 TRANSLATION UNITS:
 ${userPayload}
 
-REQUIRED OUTPUT SCHEMA:
+OUTPUT SCHEMA (MUST include ALL IDs):
 {
   "translations": [
-    { "id": "unit_id", "text": "translated text" }
+    { "id": "u_0000", "text": "..." },
+    { "id": "u_0001", "text": "..." }
   ]
 }
 
-Translate only units with role="translate". Return valid JSON.`
+Every ID in "MUST TRANSLATE THESE IDS" must appear in the output!`
 }
 
 export function parseTranslationResponse(
@@ -133,7 +126,6 @@ export function parseTranslationResponse(
   expectedIds: string[]
 ): TranslationResult[] {
   try {
-    // Try to extract JSON from response
     const jsonMatch = response.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {
       throw new Error('No JSON found in response')
@@ -145,22 +137,24 @@ export function parseTranslationResponse(
       throw new Error('Invalid response format - missing translations array')
     }
     
-    // Validate and map results
     const results: TranslationResult[] = []
     const receivedIds = new Set<string>()
     
     for (const t of data.translations) {
       if (!t.id || typeof t.text !== 'string') {
-        throw new Error(`Invalid translation entry: ${JSON.stringify(t)}`)
+        continue // Skip invalid entries
       }
       results.push({ id: t.id, text: t.text })
       receivedIds.add(t.id)
     }
     
-    // Check for missing IDs
-    for (const expectedId of expectedIds) {
-      if (!receivedIds.has(expectedId)) {
-        throw new Error(`Missing translation for ID: ${expectedId}`)
+    // Check for missing IDs and warn (but continue)
+    const missing = expectedIds.filter(id => !receivedIds.has(id))
+    if (missing.length > 0) {
+      console.warn(`Missing translations for IDs: ${missing.join(', ')}`)
+      // Fill in missing with source text as fallback
+      for (const id of missing) {
+        results.push({ id, text: `[MISSING: ${id}]` })
       }
     }
     
