@@ -120,18 +120,24 @@ export function buildTranslationPrompt(
   const systemPrompt = `You are a professional document translator.
 
 TASK:
-Translate EVERY SINGLE paragraph from ${options.sourceLanguage} into ${options.targetLanguage}.
+Translate EVERY paragraph from ${options.sourceLanguage} into ${options.targetLanguage}.
+
+⚠️ IMPORTANT - COMMON MISTAKE TO AVOID:
+❌ WRONG: "In diesem Abschnitt zählt Paulus mehrere Merkmale auf"
+   (Copying German words verbatim - THIS IS WRONG!)
+
+✅ CORRECT: "En esta sección Pablo enumera varias características"
+   (Translating ALL words to Spanish - THIS IS RIGHT!)
 
 CRITICAL RULES:
-- You MUST translate ALL text - no exceptions
-- Do NOT skip any word or phrase
-- Do NOT copy source text verbatim - TRANSLATE IT
-- Do NOT merge paragraphs together  
-- Do NOT summarize - translate fully
-- EVERY word in the output must be in ${options.targetLanguage}
-- If you see German words, translate them to Spanish
+- Translate ALL words - no exceptions
+- NEVER copy source text verbatim 
+- EVERY word in output must be in ${options.targetLanguage}
+- If you see "${options.sourceLanguage}" words, translate them
 
-WARNING: Copying source language text without translation is FAILURE.
+EXAMPLE:
+German: "Der Diener des Leibes Christi leidet fröhlich"
+Spanish: "El siervo del cuerpo de Cristo sufre gozosamente"
 
 DOMAIN: ${options.domain || 'general'}
 TONE: ${options.tone || 'neutral'}
