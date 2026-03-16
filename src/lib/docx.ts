@@ -5,7 +5,8 @@ export interface DocxUnit {
   id: string
   index: number
   text: string
-  element: Element
+  // Store ALL text elements in this paragraph (not just one)
+  elements: Element[]
   // Track parent paragraph to group text nodes
   paragraphId: string
 }
@@ -25,57 +26,57 @@ export async function extractDocumentXml(fileBuffer: Buffer): Promise<{ xml: Doc
 }
 
 export function extractUnits(xml: Document): DocxUnit[] {
+  // Get all paragraphs
+  const paragraphs = xml.getElementsByTagName('w:p')
+  if (paragraphs.length === 0) {
+    console.log('No paragraphs found')
+    return []
+  }
+  
+  console.log(`Found ${paragraphs.length} paragraphs`)
+  
   const units: DocxUnit[] = []
   
-  // Get all text nodes
-  let textNodes = xml.getElementsByTagName('w:t')
-  if (textNodes.length === 0) {
-    textNodes = xml.getElementsByTagName('t')
-  }
-  
-  if (textNodes.length === 0) {
-    console.log('No text nodes found')
-    return units
-  }
-  
-  console.log(`Found ${textNodes.length} text nodes`)
-  
-  let unitIndex = 0
-  let lastParagraphId = ''
-  
-  for (let i = 0; i < textNodes.length; i++) {
-    const node = textNodes[i]
-    const text = node.textContent || ''
+  for (let paraIndex = 0; paraIndex < paragraphs.length; paraIndex++) {
+    const paragraph = paragraphs[paraIndex]
     
-    if (!text.trim()) continue
+    // Get all text nodes within this paragraph
+    const textNodes = paragraph.getElementsByTagName('w:t')
     
-    // Find parent paragraph
-    let parent = node.parentNode
-    let paragraphId = ''
+    if (textNodes.length === 0) continue
     
-    while (parent) {
-      if ((parent as Element).tagName === 'w:p' || (parent as Element).tagName === 'p') {
-        paragraphId = (parent as Element).getAttribute('w:14paraId') || (parent as Element).getAttribute('xml:id') || `para_${i}`
-        break
+    // Concatenate all text in this paragraph
+    let fullText = ''
+    const elements: Element[] = []
+    
+    for (let i = 0; i < textNodes.length; i++) {
+      const node = textNodes[i]
+      const text = node.textContent || ''
+      if (text.trim()) {
+        // Preserve spacing between text nodes
+        if (fullText && !fullText.endsWith(' ') && !text.startsWith(' ')) {
+          fullText += ' '
+        }
+        fullText += text.trim()
+        elements.push(node)
       }
-      parent = parent.parentNode
     }
     
-    // Mark if this is a new paragraph
-    const isNewParagraph = paragraphId !== lastParagraphId && lastParagraphId !== ''
-    lastParagraphId = paragraphId
+    if (!fullText.trim()) continue
+    
+    // Get paragraph ID
+    const paragraphId = paragraph.getAttribute('w:14:paraId') || paragraph.getAttribute('w14:paraId') || `para_${paraIndex}`
     
     units.push({
-      id: `u_${String(unitIndex).padStart(4, '0')}`,
-      index: unitIndex,
-      text: text.trim(),
-      element: node,
+      id: `u_${String(paraIndex).padStart(4, '0')}`,
+      index: paraIndex,
+      text: fullText.trim(),
+      elements, // Store all text elements
       paragraphId
     })
-    unitIndex++
   }
   
-  console.log(`Extracted ${units.length} translation units`)
+  console.log(`Extracted ${units.length} translation units (one per paragraph)`)
   return units
 }
 
@@ -84,22 +85,31 @@ export function applyTranslations(units: DocxUnit[], translations: Map<string, s
     const unit = units[i]
     const translated = translations.get(unit.id)
     
-    if (translated) {
-      // Check if there's a next unit in the same paragraph
-      let needsSpaceAfter = false
-      if (i + 1 < units.length) {
-        const nextUnit = units[i + 1]
-        // If same paragraph and next unit doesn't start with space
-        if (nextUnit.paragraphId === unit.paragraphId && 
-            nextUnit.text && 
-            !nextUnit.text.startsWith(' ') &&
-            !translated.endsWith(' ')) {
-          needsSpaceAfter = true
-        }
+    if (translated && unit.elements.length > 0) {
+      // Split translated text back into original text nodes
+      // We need to distribute the translation across the original elements
+      
+      // Get original text parts (what was in each element)
+      const originalParts: string[] = []
+      for (const el of unit.elements) {
+        const text = el.textContent?.trim() || ''
+        if (text) originalParts.push(text)
       }
       
-      // Apply translation with trailing space if needed
-      unit.element.textContent = needsSpaceAfter ? translated + ' ' : translated
+      if (originalParts.length === 1) {
+        // Simple case: one element, just set the translation
+        unit.elements[0].textContent = translated
+      } else {
+        // Multiple elements: need to distribute translation
+        // This is tricky - for now, put full translation in first element
+        // and clear the rest (or we could use a smarter distribution)
+        
+        // Simple approach: put translation in first element, clear others
+        unit.elements[0].textContent = translated
+        for (let j = 1; j < unit.elements.length; j++) {
+          unit.elements[j].textContent = ''
+        }
+      }
     }
   }
 }
