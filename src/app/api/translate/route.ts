@@ -165,7 +165,7 @@ export async function POST(request: NextRequest) {
       // Call LLM with retry
       let responseText = ''
       let retries = 0
-      const maxRetries = 2
+      const maxRetries = 3
       
       while (retries < maxRetries) {
         try {
@@ -176,9 +176,25 @@ export async function POST(request: NextRequest) {
           )
           
           for (const result of results) {
-            // Set translation directly (placeholders locked before sending)
             translations.set(result.id, result.text)
           }
+          
+          // Check quality - if issues found, retry with stricter prompt
+          const batchTranslateUnits = batchUnits
+            .filter(u => u.role === 'translate')
+            .map(u => ({ ...u, text: translations.get(u.id) || u.text }))
+          
+          const qualityResult = checkTranslationQuality(batchTranslateUnits, translations, glossary)
+          
+          if (!qualityResult.passed && retries < maxRetries - 1) {
+            // Add warning to prompt and retry
+            const warning = `\n\n⚠️ WARNING: Previous translation contained issues: ${qualityResult.issues.join('; ')}. Translate again, making sure ALL text is in ${targetLangName}.`
+            retries++
+            console.log(`Quality retry ${retries} for batch: ${qualityResult.issues.join('; ')}`)
+            // Continue to retry with modified prompt
+            continue
+          }
+          
           break
         } catch (e) {
           retries++
