@@ -5,7 +5,9 @@ export interface DocxUnit {
   id: string
   index: number
   text: string
-  element: Element  // Direct reference to the w:t element
+  element: Element
+  // Track parent paragraph to group text nodes
+  paragraphId: string
 }
 
 export async function extractDocumentXml(fileBuffer: Buffer): Promise<{ xml: Document, zip: JSZip }> {
@@ -25,7 +27,7 @@ export async function extractDocumentXml(fileBuffer: Buffer): Promise<{ xml: Doc
 export function extractUnits(xml: Document): DocxUnit[] {
   const units: DocxUnit[] = []
   
-  // Get all text nodes in document order
+  // Get all text nodes
   let textNodes = xml.getElementsByTagName('w:t')
   if (textNodes.length === 0) {
     textNodes = xml.getElementsByTagName('t')
@@ -38,21 +40,39 @@ export function extractUnits(xml: Document): DocxUnit[] {
   
   console.log(`Found ${textNodes.length} text nodes`)
   
-  // Each non-empty text node is a translation unit
   let unitIndex = 0
+  let lastParagraphId = ''
+  
   for (let i = 0; i < textNodes.length; i++) {
     const node = textNodes[i]
     const text = node.textContent || ''
     
-    if (text.trim()) {
-      units.push({
-        id: `u_${String(unitIndex).padStart(4, '0')}`,
-        index: unitIndex,
-        text: text.trim(),
-        element: node
-      })
-      unitIndex++
+    if (!text.trim()) continue
+    
+    // Find parent paragraph
+    let parent = node.parentNode
+    let paragraphId = ''
+    
+    while (parent) {
+      if ((parent as Element).tagName === 'w:p' || (parent as Element).tagName === 'p') {
+        paragraphId = (parent as Element).getAttribute('w:14paraId') || (parent as Element).getAttribute('xml:id') || `para_${i}`
+        break
+      }
+      parent = parent.parentNode
     }
+    
+    // Mark if this is a new paragraph
+    const isNewParagraph = paragraphId !== lastParagraphId && lastParagraphId !== ''
+    lastParagraphId = paragraphId
+    
+    units.push({
+      id: `u_${String(unitIndex).padStart(4, '0')}`,
+      index: unitIndex,
+      text: text.trim(),
+      element: node,
+      paragraphId
+    })
+    unitIndex++
   }
   
   console.log(`Extracted ${units.length} translation units`)
@@ -60,12 +80,26 @@ export function extractUnits(xml: Document): DocxUnit[] {
 }
 
 export function applyTranslations(units: DocxUnit[], translations: Map<string, string>): void {
-  for (const unit of units) {
+  for (let i = 0; i < units.length; i++) {
+    const unit = units[i]
     const translated = translations.get(unit.id)
     
     if (translated) {
-      // Direct replacement
-      unit.element.textContent = translated
+      // Check if there's a next unit in the same paragraph
+      let needsSpaceAfter = false
+      if (i + 1 < units.length) {
+        const nextUnit = units[i + 1]
+        // If same paragraph and next unit doesn't start with space
+        if (nextUnit.paragraphId === unit.paragraphId && 
+            nextUnit.text && 
+            !nextUnit.text.startsWith(' ') &&
+            !translated.endsWith(' ')) {
+          needsSpaceAfter = true
+        }
+      }
+      
+      // Apply translation with trailing space if needed
+      unit.element.textContent = needsSpaceAfter ? translated + ' ' : translated
     }
   }
 }
